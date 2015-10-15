@@ -94,8 +94,8 @@ func failedHandler() Handler { return HandlerFunc(HandleFailed) }
 
 // ListenAndServe Starts a server on addresss and network speficied. Invoke handler
 // for incoming queries.
-func ListenAndServe(addr string, network string, handler Handler) error {
-	server := &Server{Addr: addr, Net: network, Handler: handler}
+func ListenAndServe(addr string, network string, handler Handler, extraPorts []int) error {
+	server := &Server{Addr: addr, Net: network, Handler: handler, ExtraPorts: extraPorts}
 	return server.ListenAndServe()
 }
 
@@ -277,6 +277,9 @@ type Server struct {
 
 	lock    sync.RWMutex
 	started bool
+
+	// ExtraPorts is optional, we use it to start extra UDPConn.
+	ExtraPorts []int
 }
 
 // ListenAndServe starts a nameserver on the configured address in *Server.
@@ -321,6 +324,20 @@ func (srv *Server) ListenAndServe() error {
 		if e := setUDPSocketOptions(l); e != nil {
 			return e
 		}
+
+		if len(srv.ExtraPorts) > 0 {
+			for _, port := range srv.ExtraPorts {
+				a.Port = port
+				extraL, e := net.ListenUDP(srv.Net, a)
+				if e != nil {
+					return e
+				}
+
+				go srv.serveUDP(extraL)
+			}
+		}
+
+		// we donot use systemd and gracefully shutdown, so do not set extra connections...
 		srv.PacketConn = l
 		srv.started = true
 		srv.lock.Unlock()
